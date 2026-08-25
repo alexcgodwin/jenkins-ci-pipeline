@@ -5,6 +5,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = "alexcgodwin/cloud-app"
         DEPLOYMENT_FILE = "kubernetes/deployment.yaml"
+        VENV = ".venv"
     }
 
     stages {
@@ -18,7 +19,12 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh '''
-                    python3 -m pip install -r app/requirements.txt
+                    python3 -m venv "$VENV"
+                    . "$VENV/bin/activate"
+
+                    python -m pip install --upgrade pip
+                    python -m pip install -r app/requirements.txt
+                    python -m pip install pytest
                 '''
             }
         }
@@ -26,6 +32,7 @@ pipeline {
         stage('Run Tests') {
             steps {
                 sh '''
+                    . "$VENV/bin/activate"
                     pytest -v tests/
                 '''
             }
