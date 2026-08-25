@@ -1,185 +1,296 @@
-# Jenkins CI/CD Pipeline with Docker, GitOps, Argo CD and Kubernetes
+# Cloud Application CI/CD Pipeline with Jenkins, Docker, Argo CD and Kubernetes
 
-This project demonstrates a CI/CD workflow for a containerized Python Flask application using Jenkins, Docker, GitHub, Argo CD, and Kubernetes.
+A practical DevOps project demonstrating an automated CI/CD and GitOps workflow using Jenkins, Docker, GitHub, Argo CD and Kubernetes.
 
-Jenkins handles continuous integration tasks such as dependency installation, automated testing, Docker image creation, and image publishing. Deployment configuration is maintained separately in a GitOps repository. Jenkins updates the container image tag in that repository, and Argo CD synchronizes the change with Kubernetes.
+The pipeline tests a Python application, builds a Docker image, publishes the image to Docker Hub, updates a separate GitOps repository, and allows Argo CD to automatically synchronize the new application version with Kubernetes.
 
 ## Architecture
 
 ```text
 Developer
-   ↓
+    |
+    v
 GitHub Application Repository
-   ↓
+    |
+    v
 Jenkins
-   ↓
-Install Dependencies
-   ↓
-Run Automated Tests
-   ↓
-Build Docker Image
-   ↓
-Push Docker Image to Registry
-   ↓
+    |
+    +---- Checkout Source Code
+    |
+    +---- Install Python Dependencies
+    |
+    +---- Run Automated Tests
+    |
+    +---- Build Docker Image
+    |
+    +---- Push Image to Docker Hub
+    |
+    v
 Update GitOps Repository
-   ↓
-Argo CD Detects Git Change
-   ↓
-Kubernetes
-   ↓
-Cloud App Deployment
-```
-
-## Application Repository Structure
-
-```text
-jenkins-ci-pipeline/
-├── app/
-│   ├── __init__.py
-│   ├── app.py
-│   └── requirements.txt
-├── tests/
-│   └── test_app.py
-├── .gitignore
-├── Dockerfile
-├── Jenkinsfile
-└── README.md
+    |
+    v
+GitHub GitOps Repository
+    |
+    v
+Argo CD
+    |
+    v
+Kubernetes Cluster
+    |
+    v
+Cloud Application
 ```
 
 ## Technologies Used
 
 - Jenkins
-- Docker
-- Python
-- Flask
-- Gunicorn
-- Pytest
-- Git
 - GitHub
+- Git
+- Python
+- Pytest
+- Docker
+- Docker Hub
 - Kubernetes
 - Argo CD
 - GitOps
-
-## Application
-
-The project contains a small Flask application used to demonstrate the CI/CD workflow.
-
-The application provides:
-
-- `/` — application status endpoint
-- `/health` — health-check endpoint used by Kubernetes readiness and liveness probes
-
-The application runs on port `5000`.
-
-## Automated Testing
-
-Pytest is used to verify the application before a container image is built.
-
-The tests check that:
-
-- The main endpoint responds successfully.
-- The application reports a `running` status.
-- The health endpoint responds successfully.
-- The application reports a `healthy` status.
-
-This allows Jenkins to stop the pipeline if application tests fail.
-
-## Docker
-
-The application is packaged as a Docker container.
-
-The Dockerfile:
-
-1. Uses a Python 3.12 slim base image.
-2. Installs the application dependencies.
-3. Copies the Flask application into the image.
-4. Exposes port `5000`.
-5. Runs the application with Gunicorn.
-
-## Jenkins Pipeline
-
-The `Jenkinsfile` defines the CI workflow.
-
-The pipeline performs the following stages:
-
-1. Checkout source code.
-2. Install Python dependencies.
-3. Run automated tests.
-4. Build the Docker image.
-5. Push the image to the container registry.
-6. Update the image tag in the GitOps repository.
-
-Credentials are referenced through Jenkins credentials rather than stored directly in the repository.
-
-## GitOps Deployment
-
-Kubernetes deployment configuration is maintained in a separate repository:
-
-`alexcgodwin/cloud-app-gitops`
-
-The Jenkins pipeline updates the container image reference in that repository after a successful build.
-
-Argo CD monitors the GitOps repository and synchronizes the desired configuration with the Kubernetes cluster.
-
-This separates the CI process from Kubernetes deployment and keeps Git as the source of truth for the desired application state.
-
-## Kubernetes
-
-The GitOps repository contains:
-
-- Namespace configuration
-- Deployment configuration
-- Kubernetes Service
-- Argo CD Application configuration
-
-The application Deployment uses two replicas and a rolling update strategy.
-
-Kubernetes readiness and liveness probes use the application's `/health` endpoint.
-
-## Argo CD
-
-Argo CD monitors the `kubernetes` directory of the GitOps repository.
-
-Automated synchronization is configured with:
-
-- Automatic sync
-- Pruning
-- Self-healing
-
-When Jenkins changes the Docker image tag in Git, Argo CD detects the new desired state and applies it to Kubernetes.
-
-## Security Practices
-
-This project follows several basic security practices:
-
-- Credentials are not hard-coded in the Jenkinsfile.
-- Jenkins credentials are used for external authentication.
-- Environment files are excluded through `.gitignore`.
-- Secrets are not committed to the repositories.
-- Application and deployment configuration are maintained separately.
+- YAML
 
 ## CI/CD Workflow
+
+### 1. Source Code Checkout
+
+Jenkins retrieves the application source code and Jenkinsfile from GitHub.
+
+### 2. Dependency Installation
+
+The pipeline creates an isolated Python virtual environment and installs the application's dependencies.
+
+### 3. Automated Testing
+
+Pytest runs the automated tests before a container image is created.
+
+A failed test stops the pipeline and prevents the application from progressing to the image publishing and deployment stages.
+
+### 4. Docker Image Build
+
+After the tests pass, Jenkins builds the application container image.
+
+Each successful pipeline run uses the Jenkins build number as the Docker image tag.
+
+Example:
+
+```text
+alexcgodwin/cloud-app:5
+```
+
+This provides a clear link between a Jenkins build and the corresponding container image.
+
+### 5. Docker Hub Push
+
+Jenkins authenticates to Docker Hub using credentials stored securely in Jenkins Credentials and publishes the newly built image.
+
+Credentials are not stored directly inside the Jenkinsfile.
+
+### 6. GitOps Repository Update
+
+After publishing the image, Jenkins clones the deployment repository:
+
+```text
+cloud-app-gitops
+```
+
+The pipeline updates the Kubernetes deployment manifest with the new Docker image tag, commits the change, and pushes it to GitHub.
+
+### 7. Argo CD Synchronization
+
+Argo CD monitors the GitOps repository.
+
+When Jenkins changes the Kubernetes manifest, Argo CD detects the difference between the desired state stored in Git and the current state of the Kubernetes cluster.
+
+Automatic synchronization applies the new desired state to the cluster.
+
+The application is configured with:
+
+```text
+Auto-Sync: Enabled
+Prune: Enabled
+Self Heal: Enabled
+```
+
+### 8. Kubernetes Deployment
+
+The application runs in the Kubernetes namespace:
+
+```text
+devops-demo
+```
+
+The deployment currently runs two application replicas behind a Kubernetes ClusterIP service.
+
+Verification:
+
+```bash
+kubectl get all -n devops-demo
+```
+
+A successful deployment shows two running application pods and two available deployment replicas.
+
+## Application Verification
+
+For local testing, the Kubernetes service can be forwarded to the workstation:
+
+```bash
+kubectl port-forward service/cloud-app 8082:80 -n devops-demo
+```
+
+The application can then be accessed at:
+
+```text
+http://localhost:8082
+```
+
+Successful response:
+
+```json
+{
+  "application": "cloud-app",
+  "message": "CI/CD pipeline deployment successful",
+  "status": "running"
+}
+```
+
+## GitOps Design
+
+This project separates continuous integration from Kubernetes deployment.
+
+Jenkins is responsible for:
+
+- Checking out source code
+- Installing dependencies
+- Running automated tests
+- Building the Docker image
+- Publishing the image
+- Updating the GitOps repository
+
+Argo CD is responsible for:
+
+- Monitoring the Kubernetes configuration stored in Git
+- Detecting configuration changes
+- Synchronizing the desired state with Kubernetes
+- Detecting deployment drift
+- Maintaining the configured GitOps state
+
+This separation means Jenkins does not need to directly execute the Kubernetes deployment.
+
+Git remains the source of truth for the desired Kubernetes configuration.
+
+## Repository Structure
+
+Example project structure:
+
+```text
+jenkins-ci-pipeline/
+│
+├── app/
+│   ├── requirements.txt
+│   └── ...
+│
+├── tests/
+│   └── ...
+│
+├── Dockerfile
+├── Jenkinsfile
+└── README.md
+```
+
+The Kubernetes manifests are maintained separately in:
+
+```text
+cloud-app-gitops
+└── kubernetes/
+    └── deployment.yaml
+```
+
+## Jenkins Credentials
+
+The pipeline uses Jenkins Credentials rather than placing authentication secrets in source control.
+
+Configured credentials include:
+
+```text
+dockerhub-credentials
+github-gitops-credentials
+```
+
+The Docker Hub credential allows Jenkins to publish container images.
+
+The GitHub credential allows Jenkins to update the GitOps repository.
+
+## Successful Result
+
+The completed workflow demonstrates:
 
 ```text
 Code Change
     ↓
-GitHub
-    ↓
-Jenkins Pipeline
+Jenkins CI
     ↓
 Automated Tests
     ↓
-Docker Build
+Docker Image Build
     ↓
-Container Registry
+Docker Hub
     ↓
-GitOps Repository Update
+GitOps Manifest Update
     ↓
 Argo CD
     ↓
-Kubernetes Deployment
+Kubernetes
+    ↓
+Running Application
 ```
 
-## Project Goal
+The final environment was verified with:
 
-The goal of this project is to demonstrate a practical CI/CD and GitOps workflow where Jenkins handles continuous integration and image creation, while Argo CD handles Kubernetes continuous delivery from a Git-controlled desired state.
+- Successful Jenkins pipeline execution
+- Docker image publication
+- Successful GitOps repository update
+- Argo CD showing `Healthy`
+- Argo CD showing `Synced`
+- Argo CD reporting `Sync OK`
+- Two Kubernetes application replicas running
+- Zero application pod restarts during verification
+- Successful application response through the Kubernetes service
+
+## Key DevOps Concepts Demonstrated
+
+This project demonstrates practical experience with:
+
+- Continuous Integration
+- Continuous Delivery
+- GitOps
+- Pipeline as Code
+- Automated testing
+- Containerization
+- Container image versioning
+- Kubernetes deployments
+- Declarative infrastructure configuration
+- Automated synchronization
+- Deployment drift detection
+- Credential management
+- Separation of CI and CD responsibilities
+
+## Future Improvements
+
+Possible production-focused improvements include:
+
+- Replace local Kubernetes with a managed Kubernetes platform such as Amazon EKS
+- Add container vulnerability scanning
+- Add static code analysis
+- Add Kubernetes health checks and resource requests/limits where appropriate
+- Add Prometheus and Grafana monitoring
+- Add centralized application logging
+- Add TLS and ingress
+- Add environment-specific GitOps configurations
+- Add controlled promotion between development, staging and production
+- Add image signing and stronger software supply-chain controls
