@@ -9,7 +9,7 @@ def home():
         {
             "application": "cloud-app",
             "status": "running",
-            "message": "CI/CD pipeline deployment successful"
+            "message": "CI/CD pipeline deployment successful - webhook verified"
         }
     )
 
