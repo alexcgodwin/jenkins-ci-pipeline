@@ -1,0 +1,31 @@
+name: Jenkins pipeline review checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install application dependencies
+        run: python -m pip install -r app/requirements.txt pytest==8.4.2
+      - name: Run application and promotion safety tests
+        run: |
+          python -m pytest -q tests/test_app.py
+          python -m unittest discover -s tests -p 'test_promotion.py' -v
+      - name: Verify reviewed pipeline boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('pipelines/Jenkinsfile.reviewed').read_text()
+          for item in ('PUBLISH_TO_DEV','disableConcurrentBuilds','GIT_ASKPASS','git push origin HEAD:main','promote_image.py'):
+              assert item in p,item
+          assert 'https://${GIT_USERNAME}:${GIT_TOKEN}' not in p
+          PY

@@ -1,0 +1,100 @@
+pipeline {
+    agent { label 'docker' }
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        skipDefaultCheckout(true)
+    }
+    parameters {
+        booleanParam(name: 'PUBLISH_TO_DEV', defaultValue: false, description: 'Manual release authorization for the main branch')
+    }
+    environment {
+        DOCKER_IMAGE = 'alexcgodwin/cloud-app'
+        GITOPS_REPO = 'https://github.com/alexcgodwin/cloud-app-gitops.git'
+        GITOPS_MANIFEST = 'kubernetes/deployment.yaml'
+    }
+    stages {
+        stage('Checkout') { steps { checkout scm } }
+        stage('Unit tests') {
+            steps {
+                sh '''
+                    set -eu
+                    python3 -m venv .venv
+                    . .venv/bin/activate
+                    python -m pip install -r app/requirements.txt pytest==8.4.2
+                    python -m pytest -q tests
+                '''
+            }
+        }
+        stage('Static promotion contract') {
+            steps {
+                sh 'python3 -m unittest discover -s tests -p "test_promotion.py" -v'
+            }
+        }
+        stage('Build candidate') {
+            steps {
+                script {
+                    env.RELEASE_TAG = env.GIT_COMMIT.take(12)
+                }
+                sh '''
+                    set -eu
+                    docker build --pull -t "$DOCKER_IMAGE:$RELEASE_TAG" .
+                '''
+            }
+        }
+        stage('Publish approved main build') {
+            when { allOf { branch 'main'; expression { return params.PUBLISH_TO_DEV } } }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh '''
+                        set -eu
+                        printf '%s' "$DOCKER_PASSWORD" | docker login --username "$DOCKER_USER" --password-stdin
+                        docker push "$DOCKER_IMAGE:$RELEASE_TAG"
+                        docker logout
+                    '''
+                }
+            }
+        }
+        stage('Promote via reviewed GitOps commit') {
+            when { allOf { branch 'main'; expression { return params.PUBLISH_TO_DEV } } }
+            steps {
+                // Credential never appears in the git URL or a command-line argument.
+                withCredentials([string(credentialsId: 'github-gitops-token', variable: 'GITOPS_TOKEN')]) {
+                    sh '''
+                        set -eu
+                        umask 077
+                        git config --global credential.helper ''
+                        cat > /tmp/git-askpass-$$ <<'EOF'
+#!/bin/sh
+case "$1" in
+*Username*) printf '%s\\n' 'x-access-token' ;;
+*Password*) printf '%s\\n' "$GITOPS_TOKEN" ;;
+esac
+EOF
+                        chmod 700 /tmp/git-askpass-$$
+                        export GIT_ASKPASS=/tmp/git-askpass-$$
+                        export GIT_TERMINAL_PROMPT=0
+                        trap 'rm -f "$GIT_ASKPASS"' EXIT
+                        git clone "$GITOPS_REPO" gitops-release
+                        cd gitops-release
+                        git config user.name 'Jenkins GitOps'
+                        git config user.email 'jenkins-gitops@users.noreply.github.com'
+                        python3 ../scripts/promote_image.py "$GITOPS_MANIFEST" "$DOCKER_IMAGE:$RELEASE_TAG"
+                        git diff --check
+                        git add "$GITOPS_MANIFEST"
+                        if git diff --cached --quiet; then exit 0; fi
+                        git commit -m "release: promote cloud-app $RELEASE_TAG"
+                        git push origin HEAD:main
+                    '''
+                }
+            }
+        }
+    }
+    post {
+        always {
+            sh 'rm -rf gitops-release .venv || true'
+            sh 'docker logout || true'
+        }
+    }
+}

@@ -294,3 +294,9 @@ Possible production-focused improvements include:
 - Add environment-specific GitOps configurations
 - Add controlled promotion between development, staging and production
 - Add image signing and stronger software supply-chain controls
+
+## Reviewed release candidate and safety gates
+
+A separate [Jenkins release candidate](pipelines/Jenkinsfile.reviewed) and [GitOps promotion validator](scripts/promote_image.py) provide a safer promotion path without automatically replacing the existing Jenkins job. A successful main-branch build is **not** sufficient to publish or deploy: `PUBLISH_TO_DEV` defaults to `false`, images use commit-derived tags and CI tests the manifest-mutation contract.
+
+The reviewed candidate avoids embedding GitHub tokens in clone URLs by using Jenkins credentials and Git's askpass mechanism; it also fails rather than force-pushing when concurrent GitOps changes occur. See the [operating model and transition steps](docs/RELEASE_OPERATING_MODEL.md). This is a release candidate that requires Jenkins administrator review and environment smoke tests before activation. The original root `Jenkinsfile` remains unchanged to avoid an unexpected deployment.
